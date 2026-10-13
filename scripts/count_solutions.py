@@ -1,10 +1,14 @@
 """Count all solutions for N-Queens using SAT solver and blocking clauses on primary variables."""
 
 import argparse
+import os
 import sys
 import time
 from typing import Dict, List
 from pysat.solvers import Solver
+
+# Ensure project root is in sys.path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from src.nqueens.board import decode, verify
 from src.nqueens.cnf_builder import build_cnf

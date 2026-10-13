@@ -8,6 +8,9 @@ import sys
 import time
 from typing import Dict, Any
 
+# Ensure project root is in sys.path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 from src.nqueens.sat_runner import solve_nqueens_sat
 from src.nqueens.baselines.cpsat_model import solve_cpsat_permutation, solve_cpsat_binary
 from src.nqueens.baselines.gurobi_model import solve_gurobi
@@ -52,6 +55,9 @@ def main():
 
     result: Dict[str, Any] = {}
 
+    def _emit_encode_stats(stats: Dict[str, Any]) -> None:
+        print("ENCODE_STATS:" + json.dumps(stats), flush=True)
+
     if args.method == "sat":
         result = solve_nqueens_sat(
             n=args.n,
@@ -60,6 +66,7 @@ def main():
             symmetry=args.symmetry,
             redundant_alo=redundant_alo,
             seed=args.seed,
+            on_encoded=_emit_encode_stats,
         )
     elif args.method in ["cpsat", "cpsat_permutation"]:
         result = solve_cpsat_permutation(

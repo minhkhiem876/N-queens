@@ -1,7 +1,7 @@
 """CNF formula builder for the N-Queens problem."""
 
 import math
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, Optional
 from pysat.formula import CNF, IDPool
 
 from .board import var, lines
@@ -13,6 +13,7 @@ def build_cnf(
     amo_name: str = "seq",
     symmetry: bool = False,
     redundant_alo: bool = True,
+    max_clauses: Optional[int] = None,
 ) -> Tuple[CNF, IDPool, Dict[str, Any]]:
     """Build a CNF formula for N-Queens using the specified At-Most-One (AMO) encoding.
     
@@ -21,6 +22,7 @@ def build_cnf(
         amo_name: Name of the AMO encoding (e.g. 'pairwise', 'seq', 'binary', 'commander', 'product', 'ladder', 'totalizer').
         symmetry: If True, add a horizontal reflection symmetry-breaking clause on the first row.
         redundant_alo: If True, add redundant At-Least-One (ALO) clauses for columns.
+        max_clauses: Optional safety ceiling on number of clauses to prevent RAM exhaustion.
         
     Returns:
         A tuple of (cnf, pool, stats) where:
@@ -41,6 +43,8 @@ def build_cnf(
         # At most one
         for cl in amo_func(row, pool):
             cnf.append(cl)
+        if max_clauses is not None and len(cnf.clauses) > max_clauses:
+            raise MemoryError(f"CNF clause count exceeded limit of {max_clauses:,} during encoding")
 
     # 2. Column constraints: AMO, and optional redundant ALO
     for col in board_lines["cols"]:
@@ -48,16 +52,22 @@ def build_cnf(
             cnf.append(list(col))
         for cl in amo_func(col, pool):
             cnf.append(cl)
+        if max_clauses is not None and len(cnf.clauses) > max_clauses:
+            raise MemoryError(f"CNF clause count exceeded limit of {max_clauses:,} during encoding")
 
     # 3. Major diagonals: AMO for length >= 2
     for diag in board_lines["diag_main"]:
         for cl in amo_func(diag, pool):
             cnf.append(cl)
+        if max_clauses is not None and len(cnf.clauses) > max_clauses:
+            raise MemoryError(f"CNF clause count exceeded limit of {max_clauses:,} during encoding")
 
     # 4. Minor / Anti-diagonals: AMO for length >= 2
     for diag in board_lines["diag_anti"]:
         for cl in amo_func(diag, pool):
             cnf.append(cl)
+        if max_clauses is not None and len(cnf.clauses) > max_clauses:
+            raise MemoryError(f"CNF clause count exceeded limit of {max_clauses:,} during encoding")
 
     # 5. Optional horizontal symmetry breaking
     # Place queen in row 0 in first ceil(n / 2) columns

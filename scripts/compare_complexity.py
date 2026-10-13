@@ -1,7 +1,13 @@
 """Compare theoretical vs empirical CNF clause and variable counts across AMO encodings."""
 
 import argparse
+import os
+import sys
 import pandas as pd
+
+# Ensure project root is in sys.path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 from src.nqueens.cnf_builder import build_cnf
 from src.nqueens.encodings import REGISTRY
 
@@ -26,18 +32,7 @@ def analyze_complexity(instances: list[int] = [8, 16, 32, 64, 128]):
     print("\n=== Empirical CNF Complexity Summary ===")
     print(df.to_string(index=False))
 
-    # Pivot tables for LaTeX inclusion
-    p_clauses = df.pivot(index="n", columns="encoding", values="clauses")
-    p_vars = df.pivot(index="n", columns="encoding", values="total_vars")
 
-    import os
-    os.makedirs("results/tables", exist_ok=True)
-    with open("results/tables/empirical_clauses.tex", "w") as f:
-        f.write(p_clauses.to_latex(caption="Empirical CNF clause count by board size $n$ and AMO encoding."))
-    with open("results/tables/empirical_vars.tex", "w") as f:
-        f.write(p_vars.to_latex(caption="Empirical CNF variable count by board size $n$ and AMO encoding."))
-
-    print("\nSaved empirical_clauses.tex and empirical_vars.tex to results/tables/")
     return df
 
 

@@ -32,9 +32,7 @@ Developed for **Assignment 1 — Modern Topics in Computer Science** (VNU Univer
 - **Benchmarking Infrastructure**:
   - Subprocess isolation with OS-level hard timeout and memory tracking (`psutil`).
   - Append-only CSV logging with resume capability.
-  - Automated LaTeX tables and matplotlib scaling plots (PNG & PDF).
-- **Scientific Report**:
-  - Elsevier `cas-sc` LaTeX manuscript ready for submission / Overleaf.
+  - Matplotlib scaling plots (PNG & PDF).
 
 ---
 
@@ -68,18 +66,13 @@ Developed for **Assignment 1 — Modern Topics in Computer Science** (VNU Univer
 │   ├── count_solutions.py     # Complete solution counting (blocking clauses on x)
 │   ├── compare_complexity.py  # Empirical vs theoretical clause/variable comparison
 │   ├── record_environment.py  # Logs machine hardware and solver versions
-│   └── make_tables_figs.py    # Generates LaTeX tables, cactus plots, and scaling figures
+│   └── make_tables_figs.py    # Generates cactus plots and scaling figures
 ├── tests/
 │   ├── test_amo.py            # Brute-force AMO verification for k in 1..10
 │   └── test_solutions.py      # Correctness check against OEIS A000170
-├── results/
-│   ├── raw/                   # Raw CSV and environment.json
-│   ├── tables/                # Generated LaTeX tables
-│   └── figures/               # Generated PDF and PNG plots
-└── report/
-    ├── main.tex               # Elsevier cas-sc single-column template
-    ├── refs.bib               # BibTeX references
-    └── figures/               # Figures for LaTeX inclusion
+└── results/
+    ├── raw/                   # Raw CSV and environment.json
+    └── figures/               # Generated PDF and PNG plots
 ```
 
 ---
@@ -141,7 +134,7 @@ python scripts/run_benchmark.py --instances 8,16,32,64,128 --timeout 600
 ```
 Runs are saved to `results/raw/benchmark_results.csv`. If interrupted, rerun the command; it automatically resumes and skips already-completed runs.
 
-### 4.5. Generate Tables & Figures
+### 4.5. Generate Figures
 ```bash
 python scripts/make_tables_figs.py
 ```
@@ -151,30 +144,10 @@ python scripts/make_tables_figs.py
   - `fig_solvers_comparison.pdf`: Comparison across SAT solvers.
   - `fig_cactus_plot.pdf`: Cactus plot of solved instances.
   - `fig_sat_vs_baselines.pdf`: SAT vs CP-SAT and Gurobi.
-- Tables saved to `results/tables/` (LaTeX format).
 
 ---
 
-## 5. Compiling the Scientific Report
-
-The report is written in Elsevier CAS Single Column format (`\documentclass[a4paper,fleqn]{cas-sc}`):
-- Source file: `report/main.tex`
-- Bibliography: `report/refs.bib`
-- Figures: `report/figures/`
-
-To compile locally (if TeX Live is installed):
-```bash
-cd report
-pdflatex main
-bibtex main
-pdflatex main
-pdflatex main
-```
-Alternatively, upload the `report/` folder directly to [Overleaf](https://www.overleaf.com) and select XeLaTeX / pdfLaTeX with the Elsevier template.
-
----
-
-## 6. References & Acknowledgments
+## 5. References & Acknowledgments
 
 - Sample code reference: [nQueens-SAT](https://github.com/Duongsuny/nQueens-SAT).
 - Sinz, C. (2005). *Towards an Optimal CNF Encoding of Boolean Cardinality Constraints*. CP 2005.

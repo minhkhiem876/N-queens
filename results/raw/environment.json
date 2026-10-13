@@ -1,0 +1,22 @@
+{
+  "machine_id": "Nguyens-MacBook-Pro.local",
+  "os": "macOS-26.6.2-arm64-arm-64bit",
+  "system": "Darwin",
+  "release": "25.6.0",
+  "architecture": "arm64",
+  "cpu": "Apple M1 Pro",
+  "physical_cores": 10,
+  "total_cores": 10,
+  "ram_gb": 32.0,
+  "python_version": "3.12.14",
+  "solvers": {
+    "pysat": "1.9.dev15",
+    "cadical": "cadical195 (bundled in PySAT)",
+    "glucose": "glucose42 (bundled in PySAT)",
+    "kissat": "kissat404 (bundled in PySAT)",
+    "maplechrono": "maplechrono (bundled in PySAT)",
+    "ortools_cpsat": "9.15.6755",
+    "gurobi": "13.0.3",
+    "docplex": "2.32.264"
+  }
+}

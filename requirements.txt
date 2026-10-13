@@ -1,0 +1,9 @@
+python-sat>=1.8.dev13
+ortools>=9.8.3296
+gurobipy>=11.0.0
+docplex>=2.25.236
+numpy>=1.26.0
+pandas>=2.1.0
+matplotlib>=3.8.0
+psutil>=5.9.0
+pytest>=8.0.0

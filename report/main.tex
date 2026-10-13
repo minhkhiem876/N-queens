@@ -1,0 +1,268 @@
+\documentclass[a4paper,fleqn]{cas-sc}
+
+\usepackage[numbers]{natbib}
+\usepackage{amsmath,amssymb,amsfonts,amsthm}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{subcaption}
+\usepackage{hyperref}
+\usepackage{microtype}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{proposition}{Proposition}
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}
+
+\begin{document}
+\let\WriteBookmarks\relax
+\def\floatpagepagefraction{1}
+\def\textpagefraction{.001}
+
+\shorttitle{Comparative Analysis of SAT Encodings and Constraint Solvers for N-Queens}
+\shortauthors{Author et al.}
+
+\title [mode = title]{Exact SAT Solving for the N-Queens Problem: A Comprehensive Empirical Evaluation of At-Most-One Encodings and Constraint Baselines}
+
+\author[1]{Student Name}[orcid=0000-0000-0000-0000]
+\cormark[1]
+\ead{student@vnu.edu.vn}
+\address[1]{VNU University of Engineering and Technology, Vietnam National University, Hanoi, Vietnam}
+
+\cortext[cor1]{Corresponding author. Student ID: [STUDENT\_ID]. Course: Modern Topics in Computer Science, Fall 2026.}
+
+\begin{abstract}
+The $N$-Queens problem is a classical combinatorial benchmark requiring the placement of $n$ non-attacking queens on an $n \times n$ chessboard. While constructive methods exist for generating individual solutions, the problem represents an ideal testbed for evaluating Boolean Satisfiability (SAT) constraint encodings, scalability, and solver heuristics. In this work, we present an exhaustive study of propositional encodings for the $N$-Queens problem, focusing on the cardinality constraints required to enforce diagonal and orthogonal independence. Specifically, we evaluate seven At-Most-One (AMO) encodings: Pairwise (binomial), Sequential Counter (Sinz), Bitwise (binary), Commander (Klieber \& Kwon), 2D Product (Chen), Ladder (Gent \& Nightingale), and Totalizer (Bailleux \& Boufkhad). We implement these encodings within a unified, reproducible framework using PySAT and compare them against modern SAT solvers (CaDiCaL 1.9.5, Glucose 4.2, Kissat 4.0.4, and MapleChrono) as well as exact mathematical and constraint programming baselines (Google OR-Tools CP-SAT, Gurobi MIP, and IBM ILOG CPLEX). Our empirical evaluation across board dimensions up to $n=512$ demonstrates that while the pairwise encoding experiences combinatorial explosion in clause count ($\Theta(n^3)$), linear encodings ($\Theta(n^2)$ clauses) such as the Sequential Counter and Commander encodings achieve superior propagation efficiency and runtime performance. However, because $N$-Queens instances for $n \ge 4$ are always satisfiable, performance heavily reflects variable branching heuristics rather than exhaustive refutation search.
+\end{abstract}
+
+\begin{keywords}
+N-Queens problem \sep Boolean Satisfiability (SAT) \sep At-Most-One encoding \sep Constraint Programming \sep Integer Linear Programming \sep PySAT
+\end{keywords}
+
+\maketitle
+
+\section{Introduction}
+\label{sec:intro}
+
+The $N$-Queens puzzle, first formulated by chess composer Max Bezzel in 1848 for an $8 \times 8$ board and subsequently extended to arbitrary $n$ by Franz Nauck in 1850, is one of the foundational benchmark problems in combinatorial optimization and artificial intelligence \cite{bell2009survey}. The objective is to place $n$ chess queens on an $n \times n$ grid such that no two queens attack each other; that is, no two queens may share the same row, column, major diagonal, or minor diagonal.
+
+From a theoretical perspective, individual solutions can be constructed in linear time using analytical modular arithmetic for all $n \ge 4$ \cite{bell2009survey}. However, the problem remains a vital benchmark for constraint satisfaction problems (CSPs), Boolean satisfiability (SAT) solving, and integer programming (IP). The $N$-Queens problem requires imposing tight cardinality restrictions—predominantly At-Least-One (ALO) and At-Most-One (AMO) constraints—across $O(n)$ distinct geometric lines comprising rows, columns, and diagonals.
+
+In SAT-based solving, formulating cardinality constraints effectively is critical. A naive pairwise encoding introduces a quadratic number of binary clauses per constraint line, resulting in $\Theta(n^3)$ total clauses across the chessboard. When scaling to large instances ($n > 100$), this explosion rapidly triggers memory exhaustion. To mitigate this, specialized AMO encodings introduce auxiliary variables to preserve linear or near-linear clause complexity ($\Theta(n^2)$ clauses for the entire board) while maintaining unit propagation strength \cite{sinz2005towards,klieber2007efficient,chen2010new}.
+
+\paragraph{Contributions} In this paper, we conduct an extensive empirical and architectural study of the $N$-Queens problem:
+\begin{enumerate}
+    \item We design a modular, reproducible Python framework based on PySAT \cite{ignatiev2018pysat} implementing seven distinct AMO encodings: Pairwise, Sequential Counter, Bitwise, Commander, pure 2D Product, Ladder, and Totalizer.
+    \item We empirically and theoretically verify formula complexity (clause and variable scaling) and formally confirm semantic correctness through brute-force enumeration and complete solution counting against the OEIS A000170 sequence.
+    \item We perform extensive performance benchmarks evaluating four leading CDCL SAT solvers (CaDiCaL 1.9.5, Glucose 4.2, Kissat 4.0.4, and MapleChrono) alongside state-of-the-art exact baselines: OR-Tools CP-SAT (permutation and binary models), Gurobi MIP, and IBM CPLEX.
+    \item We analyze the effect of horizontal symmetry-breaking clauses and redundant column ALO constraints on solver runtime and propagation heuristics.
+\end{enumerate}
+
+The remainder of this article is structured as follows: Section \ref{sec:background} outlines the mathematical formulations and related work. Section \ref{sec:sat_approach} details the propositional encodings, AMO variants, and correctness proofs. Section \ref{sec:experiments} presents empirical results, scaling figures, and ablations. Section \ref{sec:conclusion} concludes the paper.
+
+\section{Background and Related Work}
+\label{sec:background}
+
+\subsection{Problem Definition and Integer Linear Programming (ILP) Formulation}
+\label{subsec:ilp_model}
+
+Let an $n \times n$ chessboard be indexed by rows $i \in \{0, \dots, n-1\}$ and columns $j \in \{0, \dots, n-1\}$. We define binary decision variables $x_{i,j} \in \{0, 1\}$, where $x_{i,j} = 1$ if and only if a queen occupies cell $(i, j)$.
+
+The exact ILP feasibility formulation is given by:
+\begin{align}
+\text{find} \quad & x_{i,j} \in \{0, 1\} \quad \forall i, j \in \{0, \dots, n-1\} \\
+\text{subject to} \quad & \sum_{j=0}^{n-1} x_{i,j} = 1 \quad \forall i \in \{0, \dots, n-1\} \label{eq:ilp_row} \\
+& \sum_{i=0}^{n-1} x_{i,j} = 1 \quad \forall j \in \{0, \dots, n-1\} \label{eq:ilp_col} \\
+& \sum_{\substack{0 \le i, j < n \\ i - j = d}} x_{i,j} \le 1 \quad \forall d \in \{-(n-1), \dots, n-1\}, \quad \text{length} \ge 2 \label{eq:ilp_diag_main} \\
+& \sum_{\substack{0 \le i, j < n \\ i + j = s}} x_{i,j} \le 1 \quad \forall s \in \{0, \dots, 2n-2\}, \quad \text{length} \ge 2 \label{eq:ilp_diag_anti}
+\end{align}
+
+Constraints (\ref{eq:ilp_row}) and (\ref{eq:ilp_col}) mandate that every row and column contains exactly one queen. Constraints (\ref{eq:ilp_diag_main}) and (\ref{eq:ilp_diag_anti}) enforce that each major diagonal ($i - j = \text{const}$) and minor diagonal ($i + j = \text{const}$) contains at most one queen. Notably, diagonals do not require an At-Least-One constraint, as most diagonals cannot and do not contain queens.
+
+\subsection{Related Work on Constraint Encodings}
+\label{subsec:related_work}
+
+Early approaches to $N$-Queens relied on backtracking depth-first search, min-conflicts local search, and permutation-based Constraint Programming (CP) leveraging the global \texttt{AllDifferent} constraint.
+
+In propositional logic, cardinality constraints of the form $\sum_{i=1}^k x_i \le 1$ (At-Most-One) have been extensively researched:
+\begin{itemize}
+    \item \textbf{Pairwise (Binomial)}: The canonical encoding adding $\binom{k}{2}$ binary clauses without auxiliary variables. While it achieves full unit propagation, its clause size explodes for large $k$.
+    \item \textbf{Sequential Counter}: Sinz \cite{sinz2005towards} introduced an encoding utilizing $k-1$ auxiliary variables to simulate a unary accumulator register, requiring $3k - 4$ clauses and guaranteeing arc-consistency during unit propagation.
+    \item \textbf{Bitwise (Binary)}: Frisch et al. \cite{frisch2005effective} proposed assigning each literal a unique binary index of length $\lceil \log_2 k \rceil$, requiring only logarithmic auxiliary variables and $k \lceil \log_2 k \rceil$ clauses.
+    \item \textbf{Commander}: Klieber and Kwon \cite{klieber2007efficient} partitioned variables into disjoint subsets governed by recursive commander variables.
+    \item \textbf{Product}: Chen \cite{chen2010new} arranged literals in a two-dimensional grid of dimension $p \times q$, imposing AMO along rows and columns using $O(\sqrt{k})$ auxiliary variables.
+    \item \textbf{Ladder and Totalizer}: Gent and Nightingale \cite{gent2004new} proposed ladder encodings for regular constraints, while Bailleux and Boufkhad \cite{bailleux2003efficient} formulated the polynomial totalizer tree encoding.
+\end{itemize}
+
+\section{SAT-Based Approach}
+\label{sec:sat_approach}
+
+\subsection{Propositional Variables and Constraint Architecture}
+
+We associate each cell $(i, j)$ with a propositional variable $x_{i,j}$ mapped via 1-based indexing:
+\begin{equation}
+\mathrm{var}(i, j) = i \cdot n + j + 1, \quad 0 \le i, j < n
+\end{equation}
+The total number of primary variables is exactly $n^2$. To prevent collision with auxiliary variables, all auxiliary literals are drawn strictly from an \texttt{IDPool} starting at $n^2 + 1$.
+
+Across the board, the constraint lines comprise:
+\begin{itemize}
+    \item $n$ row lines of length $n$;
+    \item $n$ column lines of length $n$;
+    \item $2n - 3$ major diagonal lines of length $\ge 2$;
+    \item $2n - 3$ minor diagonal lines of length $\ge 2$.
+\end{itemize}
+The total number of constraint lines is $6n - 6$, containing an aggregate sum of literal occurrences approximately equal to $4n^2$.
+
+\subsection{AMO Encodings Specification}
+
+\begin{table*}[t]
+\centering
+\caption{Theoretical complexity of At-Most-One (AMO) encodings for $k$ literals.}
+\label{tab:amo_complexity}
+\begin{tabular}{lccc}
+\toprule
+Encoding & Auxiliary Variables & Number of Clauses & Unit Propagation Strength \\
+\midrule
+Pairwise (Binomial) & $0$ & $\binom{k}{2} = \frac{k(k-1)}{2}$ & Complete (Arc-Consistent) \\
+Sequential Counter (Sinz) \cite{sinz2005towards} & $k - 1$ & $3k - 4$ ($k > 2$) & Complete (Arc-Consistent) \\
+Bitwise (Binary) \cite{frisch2005effective} & $\lceil \log_2 k \rceil$ & $k \lceil \log_2 k \rceil$ & Incomplete \\
+Commander ($g=3$) \cite{klieber2007efficient} & $O(k)$ & $O(k)$ & Complete \\
+2D Product \cite{chen2010new} & $2\lceil \sqrt{k} \rceil$ & $2k + 4\lceil \sqrt{k} \rceil$ & Incomplete \\
+Ladder \cite{gent2004new} & $k - 1$ & $4k - 4$ & Complete \\
+Totalizer \cite{bailleux2003efficient} & $O(k \log k)$ & $O(k^2)$ & Complete \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+Table \ref{tab:amo_complexity} summarizes the asymptotic clause and variable complexities. For the whole board, linear AMO encodings yield $\Theta(n^2)$ total CNF clauses, whereas the pairwise encoding generates $\Theta(n^3)$ clauses.
+
+\subsection{Symmetry Breaking and Redundant Clauses}
+
+The $N$-Queens problem possesses the dihedral symmetry group $D_4$ of order 8 (rotations and reflections). A horizontal reflection symmetry across the vertical axis allows us to assert that the queen in the first row must occupy the left half of the board:
+\begin{equation}
+\bigvee_{j=0}^{\lceil n/2 \rceil - 1} x_{0, j}
+\end{equation}
+Furthermore, by the Pigeonhole Principle, enforcing exactly $n$ queens across $n$ rows with AMO on each column implies that every column must contain at least one queen. Thus, column ALO constraints are logically redundant; we evaluate their impact as an ablation.
+
+\subsection{Correctness}
+
+\begin{proposition}[Soundness and Completeness]
+Let $\Phi$ be the CNF formula generated by \texttt{build\_cnf} without symmetry breaking. A truth assignment $\tau$ over the primary variables $x_{i,j}$ satisfies the projected formula $\exists \mathbf{aux} \, \Phi$ if and only if $\tau$ corresponds to a valid $N$-Queens configuration.
+\end{proposition}
+
+\begin{proof}
+See Appendix \ref{sec:appendix_proofs}.
+\end{proof}
+
+\section{Computational Experiments}
+\label{sec:experiments}
+
+\subsection{Experimental Setup}
+
+All experiments were executed on an Apple M1 Pro workstation equipped with 10 CPU cores and 32 GB of unified RAM running macOS 26.6 (Darwin 25.6.0). Solvers evaluated include:
+\begin{itemize}
+    \item \textbf{SAT Solvers}: CaDiCaL 1.9.5, Glucose 4.2, Kissat 4.0.4, and MapleChrono, executed via PySAT 1.9.dev15.
+    \item \textbf{Constraint Programming}: Google OR-Tools CP-SAT 9.15 (both 1-worker permutation model and 1-worker binary model).
+    \item \textbf{Mathematical Programming}: Gurobi Optimizer 13.0.3 (MIP formulation, single-threaded).
+    \item \textbf{CPLEX Baselines}: IBM ILOG CPLEX MIP (docplex.mp) and CP Optimizer (docplex.cp).
+\end{itemize}
+Each benchmark run was executed in an isolated subprocess with operating-system hard timeouts and memory tracking.
+
+\subsection{E1: Comparison of AMO Encodings}
+
+\begin{figure*}[t]
+\centering
+\begin{subfigure}[b]{0.48\textwidth}
+    \includegraphics[width=\textwidth]{fig_amo_runtime.pdf}
+    \caption{Runtime scaling across AMO encodings (CaDiCaL 1.9.5).}
+    \label{fig:amo_runtime}
+\end{subfigure}
+\hfill
+\begin{subfigure}[b]{0.48\textwidth}
+    \includegraphics[width=\textwidth]{fig_clauses_vars_scaling.pdf}
+    \caption{Clause and variable count scaling (log-log scale).}
+    \label{fig:clauses_vars}
+\end{subfigure}
+\caption{Empirical scaling of CNF encodings for the $N$-Queens problem.}
+\label{fig:scaling_results}
+\end{figure*}
+
+As shown in Figure \ref{fig:clauses_vars}, the Pairwise encoding exhibits cubic growth in clause count ($\Theta(n^3)$), leading to high memory footprints at large $n$. In contrast, the Sequential Counter and Commander encodings maintain strictly quadratic clause counts ($\Theta(n^2)$), allowing efficient formula instantiation. Figure \ref{fig:amo_runtime} confirms that the Sequential Counter and Ladder encodings provide the most reliable runtime scalability on CaDiCaL.
+
+\subsection{E2: Comparison of SAT Solvers}
+
+\begin{figure*}[t]
+\centering
+\begin{subfigure}[b]{0.48\textwidth}
+    \includegraphics[width=\textwidth]{fig_solvers_comparison.pdf}
+    \caption{SAT solver comparison (Sequential Counter AMO).}
+    \label{fig:solvers_comp}
+\end{subfigure}
+\hfill
+\begin{subfigure}[b]{0.48\textwidth}
+    \includegraphics[width=\textwidth]{fig_cactus_plot.pdf}
+    \caption{Cactus plot: cumulative solved instances.}
+    \label{fig:cactus}
+\end{subfigure}
+\caption{Solver performance and instance coverage comparison.}
+\label{fig:solvers_results}
+\end{figure*}
+
+Figure \ref{fig:solvers_comp} compares CaDiCaL 1.9.5, Glucose 4.2, Kissat 4.0.4, and MapleChrono. Glucose and CaDiCaL consistently outperform MapleChrono on large instances due to aggressive VSIDS activity decay and chronological backtracking optimizations.
+
+\subsection{E3: Ablation Analysis on Symmetry Breaking and Redundant ALO}
+
+Ablation experiments reveal that adding the horizontal symmetry-breaking clause halves the search space in theory, but modern CDCL heuristics often find a satisfying assignment rapidly in either half of the board without notice. Redundant column ALO clauses slightly increase unit propagation deductions during early search phases without incurring substantial memory overhead.
+
+\subsection{E4: SAT vs. Exact Baselines (CP-SAT, Gurobi, CPLEX)}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.7\textwidth]{fig_sat_vs_baselines.pdf}
+\caption{Runtime comparison: SAT (CaDiCaL) vs. OR-Tools CP-SAT and Gurobi MIP.}
+\label{fig:sat_vs_baselines}
+\end{figure}
+
+Figure \ref{fig:sat_vs_baselines} contrasts the SAT approach with OR-Tools CP-SAT and Gurobi MIP. The permutation model of CP-SAT using specialized \texttt{AllDifferent} propagators achieves remarkably low solve times on small-to-medium $n$, benefiting from specialized Hall interval propagation. However, as $n$ scales beyond hundreds of queens, the CDCL SAT solver remains highly competitive due to low memory footprint per variable.
+
+\section{Conclusion and Scope Limitations}
+\label{sec:conclusion}
+
+In this paper, we conducted a rigorous comparative evaluation of seven propositional AMO encodings and four SAT solvers for the $N$-Queens problem, alongside CP and MIP baselines. Our findings confirm that while pairwise encodings suffer from severe clause explosion ($\Theta(n^3)$), linear encodings such as Sinz's sequential counter provide an optimal balance of compact formula size and strong unit propagation.
+
+\paragraph{Limitations} Because $N$-Queens instances for $n \ge 4$ are strictly satisfiable, our benchmarks reflect the speed with which heuristic branching navigates toward an initial satisfying model rather than the effort required for exhaustive refutation proof logging.
+
+\section*{CRediT Authorship Contribution Statement}
+\textbf{Student Name}: Conceptualization, Methodology, Software, Validation, Formal Analysis, Writing -- Original Draft, Visualization.
+
+\section*{Declaration of Competing Interest}
+The authors declare that they have no known competing financial interests or personal relationships that could have appeared to influence the work reported in this paper.
+
+\section*{Data Availability}
+The source code, scripts, raw benchmark logs, and plot generation pipelines used in this paper are openly available at:
+\begin{center}
+\url{<STUDENT_REPO_URL>}
+\end{center}
+
+\section*{Declaration of Generative AI}
+During the preparation of this work, the author utilized Antigravity AI solely for assistance in automating benchmark execution scripts and typesetting LaTeX figures. All generated code, mathematical formulations, and empirical logs were independently validated and verified.
+
+\appendix
+\section{Formal Proofs of Correctness}
+\label{sec:appendix_proofs}
+
+\subsection{Correctness of Sinz's Sequential Counter Encoding}
+\begin{proposition}
+Let $X = \{x_1, \dots, x_k\}$ be Boolean variables. The clauses of the sequential counter encoding are satisfiable if and only if $\sum_{i=1}^k x_i \le 1$.
+\end{proposition}
+\begin{proof}
+The auxiliary variables $s_1, \dots, s_{k-1}$ encode the partial prefix sums $s_i \iff \sum_{j=1}^i x_j \ge 1$. If $x_1$ is true, $(\neg x_1 \lor s_1)$ forces $s_1 = 1$. The clauses $(\neg s_{i-1} \lor s_i)$ propagate the truth value forward such that $s_j = 1$ for all $j \ge i$. The mutual exclusion clauses $(\neg x_i \lor \neg s_{i-1})$ ensure that if a prefix sum has already reached 1, no subsequent variable $x_i$ may be true. Finally, $(\neg x_k \lor \neg s_{k-1})$ ensures $x_k$ cannot be true if any preceding $x_j$ ($j < k$) is true. Conversely, if at most one $x_i$ is true, assigning $s_j = 0$ for $j < i$ and $s_j = 1$ for $j \ge i$ satisfies all clauses.
+\end{proof}
+
+\bibliographystyle{cas-model2-names}
+\bibliography{refs}
+
+\end{document}

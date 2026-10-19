@@ -1,0 +1,282 @@
+\documentclass[a4paper,fleqn]{cas-sc}
+
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\graphicspath{{./report/figures/}{figures/}}
+\usepackage[section]{placeins}
+\usepackage{url}
+
+\hypersetup{
+  pdftitle={A SAT Encoding Study of the N-Queens Problem: Cardinality Encodings and Exact Solver Baselines},
+  pdfauthor={Nguyen Minh Khiem},
+  pdfsubject={An empirical comparison of SAT encodings and exact solvers for N-Queens},
+  pdfkeywords={N-Queens, SAT, cardinality encoding, constraint programming}
+}
+
+\begin{document}
+\let\WriteBookmarks\relax
+% The CAS class prints an empty ORCID label when no ORCID is supplied.
+\renewcommand{\printorcid}{}
+\shorttitle{SAT encodings for N-Queens}
+\shortauthors{Nguyen Minh Khiem}
+\title[mode=title]{A SAT Encoding Study of the N-Queens Problem: Cardinality Encodings and Exact Solver Baselines}
+
+\author[1]{Nguyen Minh Khiem}
+\ead{24021534@vnu.edu.vn}
+\fnmark[1]
+\affiliation[1]{organization={Faculty of Information Technology, VNU University of Engineering and Technology},city={Hanoi},country={Vietnam}}
+\fntext[1]{Student ID: 24021534.}
+
+\begin{abstract}
+This paper studies a Boolean satisfiability (SAT) formulation of the N-Queens problem and compares cardinality encodings and exact solver backends. Seven at-most-one (AMO) encodings are evaluated with CaDiCaL, four SAT solvers are compared with a fixed sequential-counter encoding, and the results are contrasted with CP-SAT, Gurobi MIP, CPLEX MIP, and CPLEX CP models. The benchmark contains 204 single-run records over ten board sizes from $n=8$ to $n=512$, with a configured 300-second timeout. Solver APIs enforce that limit for the exact baselines; SAT runs instead use an outer process timeout of 303 seconds. For completed runs, reported total time includes model construction and the solver call, while hard-timeout rows use the outer process wall clock, so timing boundaries differ by status. In the fixed CaDiCaL comparison, pairwise and totalizer configurations reach the experiment's 16-million-clause safety cap at $n=256$; the other five encodings return verified solutions through $n=512$. With the sequential encoding, CaDiCaL and Kissat solve all tested sizes, while Glucose and MapleChrono time out at $n=400$. At $n=512$, all baseline models except the CP-SAT permutation model return verified solutions; the latter times out at $n=400$ and $n=512$. These observations describe one machine and one seed and do not establish a general ranking of solvers. Since ordinary N-Queens instances have constructive solutions for every $n\geq4$, the experiments measure the behavior of the selected formulations and solvers rather than the difficulty of deciding whether a solution exists.
+\end{abstract}
+
+\begin{keywords}
+N-Queens \sep Boolean satisfiability \sep cardinality constraints \sep CNF encoding \sep constraint programming
+\end{keywords}
+
+\maketitle
+
+\section{Introduction}
+The N-Queens problem asks for $n$ queens on an $n\times n$ chessboard such that no two queens share a row, column, or diagonal. It is a familiar combinatorial constraint problem with a broad mathematical literature, including surveys of known results, constructions, and open questions \cite{BellStevens2009}. For every $n\geq4$, a solution exists. Consequently, solving ordinary N-Queens instances is not a useful way to test whether a solver can prove large instances infeasible. It is, however, a compact setting for studying how alternative encodings affect model size, memory use, and the time needed to find a feasible assignment.
+
+This work implements the problem as a conjunctive normal form (CNF) formula and evaluates seven AMO encodings: pairwise, sequential counter, binary, commander, product, ladder, and totalizer. It also compares CaDiCaL, Glucose, Kissat, and MapleChrono under a fixed encoding, studies two modeling options, and includes the exact baselines required by the assignment: CP-SAT, Gurobi MIP, CPLEX MIP, and CPLEX CP. All models are feasibility models without an objective function.
+
+The contribution is an empirical comparison on ten board sizes up to $512\times512$, with raw per-run records retained in the benchmark CSV. The report describes what this dataset shows and records its limits: only one seed was run, the solver time limit was 300 seconds, solver-version fields are incomplete, and the N-Queens instances are known to be feasible. Section~2 defines the problem and its integer model. Section~3 presents the CNF formulation and AMO encodings. Section~4 reports the experiments, and Section~5 concludes.
+
+\section{Background}
+\subsection{Problem definition and integer model}
+Let $x_{ij}\in\{0,1\}$ indicate whether a queen is placed in row $i$ and column $j$, where $0\leq i,j<n$.
+
+\begin{samepage}
+A standard 0--1 feasibility formulation is
+\begin{align}
+  \sum_{j=0}^{n-1}x_{ij} &= 1 && \forall i, \label{eq:row}\tag{1a}\\
+  \sum_{i=0}^{n-1}x_{ij} &= 1 && \forall j, \label{eq:col}\tag{1b}\\
+  \sum_{(i,j)\in D}x_{ij} &\leq 1 && \forall D\in\mathcal{D}, \label{eq:diag}\tag{1c}
+\end{align}
+\end{samepage}
+\setcounter{equation}{1}
+where $\mathcal{D}$ contains each main or anti-diagonal of length at least two. The model has no objective. In the SAT implementation, rows receive exactly-one constraints, columns receive at-most-one constraints, and column at-least-one (ALO) constraints can optionally be added. Column ALO is redundant: $n$ queens occupy $n$ rows, and at most one queen in each of the $n$ columns implies exactly one in every column. Diagonals require only AMO constraints; requiring a queen on every diagonal would be incorrect.
+
+\subsection{Related work}
+The N-Queens problem has been studied through constructive mathematics, backtracking, local search, and constraint programming; Bell and Stevens survey established mathematical results and open questions, while discussing computational approaches only briefly \cite{BellStevens2009}. In a SAT model, the main design choice is often how to encode cardinality constraints such as AMO. Pairwise clauses use no auxiliary variables but grow quadratically in the number of literals in a single constraint. Sequential counters give a linear-size alternative \cite{Sinz2005}. Commander variables group literals and recursively constrain group representatives \cite{KlieberKwon2007}. Product encodings organize literals on a two-dimensional grid and recursively constrain its row and column selectors \cite{Chen2010}. The PySAT toolkit provides a common interface to SAT solvers and several cardinality encodings \cite{Ignatiev2018}.
+
+\section{SAT-based approach}
+\subsection{Variables and N-Queens constraints}
+For each cell, the implementation creates a Boolean variable
+\begin{equation}
+  x(i,j)=i\,n+j+1,\qquad 0\leq i,j<n,
+\end{equation}
+which is true exactly when a queen occupies that cell. Every row receives one ALO clause and one AMO encoding. Every column receives an AMO encoding and, in the main configuration, an optional redundant ALO clause. Each diagonal of length at least two receives an AMO encoding. Diagonals of length one require no restriction. Auxiliary variables are allocated separately from the $n^2$ cell variables.
+
+There are $n^2$ primary variables. The row and column constraints contain $O(n^2)$ total literal occurrences before auxiliaries. The total number of AMO input literals across all rows, columns, and diagonals is $O(n^2)$. Applying pairwise AMO to these lines yields $O(n^3)$ clauses in aggregate, while linear-size-per-line encodings such as the sequential, commander, and product methods yield $O(n^2)$ clauses. For $k\geq3$, the binary encoding uses $k\lceil\log_2 k\rceil$ clauses on a line of length $k$, so its aggregate bound is $O(n^2\log n)$; the implementation handles smaller cardinalities directly.
+
+\subsection{AMO encodings}
+For literals $x_1,\ldots,x_k$, the at-most-one (AMO) constraint requires that no two literals are true simultaneously. Each encoding below translates this same constraint into conjunctive normal form (CNF), but uses a different number and arrangement of clauses and auxiliary variables. These encodings do not impose an at-least-one (ALO) condition: in the N-Queens model, each row combines AMO with one ALO clause, columns use AMO (with optional redundant ALO), and diagonals use AMO only. Table~\ref{tab:amo} summarizes the resulting formula sizes. The sequential-counter and binary counts shown apply for $k\geq3$; for $k=2$, the implementation uses one pairwise clause, while for $k\leq1$ it adds no clauses or auxiliary variables. The product bounds describe its recursive construction. Ladder and totalizer counts depend on the cardinality implementation and its auxiliary-variable structure.
+
+\begin{table}[t]
+\caption{Clause and auxiliary-variable counts for the AMO encodings. Counts are exact where specified; product bounds describe the recursive construction.}
+\label{tab:amo}
+\centering
+\small
+\begin{tabular}{lll}
+\toprule
+Encoding & Clauses for $k$ literals & Auxiliary variables \\
+\midrule
+Pairwise & $\binom{k}{2}$ & $0$ \\
+Sequential counter & $3k-4$ & $k-1$ \\
+Binary & $k\lceil\log_2 k\rceil$ & $\lceil\log_2 k\rceil$ \\
+Commander (group size 3) & $O(k)$ & $O(k)$ \\
+Product (recursive) & $2k+4\sqrt{k}+O(k^{1/4})$ & $2\sqrt{k}+O(k^{1/4})$ \\
+Ladder / totalizer & implementation-dependent & implementation-dependent \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Pairwise.}
+For every distinct pair of inputs, pairwise adds the clause $(\neg x_i\lor\neg x_j)$. Thus, any two true inputs directly violate one clause. This encoding is simple, introduces no auxiliary variables, and needs $\binom{k}{2}$ clauses. For example, four inputs require six pairwise clauses. Its quadratic growth makes it costly when AMO is applied to long rows, columns, or diagonals.
+
+\paragraph{Sequential counter.}
+The sequential encoding introduces prefix variables $s_i$ that record whether an earlier input has already been selected. Each input forces the corresponding prefix state forward, while clauses prevent a later input from being true after an earlier one. For $k\geq3$, the implementation uses $k-1$ auxiliary variables and $3k-4$ clauses; the cases $k\leq2$ are handled directly. This replaces the pairwise encoding's quadratic number of clauses with a linear number, at the cost of auxiliary variables and a chain of dependencies between neighboring inputs \cite{Sinz2005}.
+
+\paragraph{Binary.}
+The binary encoding assigns each input a distinct index and represents that index with $m=\lceil\log_2 k\rceil$ auxiliary bits. If $x_i$ is true, clauses force those bits to equal the binary code of $i$. Two distinct inputs cannot both be true because their codes differ in at least one bit, which would force that bit to be both true and false. The encoding therefore uses $k\lceil\log_2 k\rceil$ clauses and only $\lceil\log_2 k\rceil$ auxiliary variables for $k\geq3$. It has fewer auxiliary variables than the sequential encoding, while using $O(k\log k)$ rather than $O(k)$ clauses.
+
+\paragraph{Commander.}
+Commander divides the inputs into groups (of size three in this study). It first adds pairwise AMO clauses inside each group. Each group also receives a commander variable, and every input in that group implies that its commander is true. An AMO constraint is then imposed recursively on the commanders. Two selected inputs in one group violate its local pairwise clauses; two selected inputs in different groups force two commanders true and violate the recursive AMO constraint. With fixed group size, both the clause and auxiliary-variable counts grow linearly in $k$ \cite{KlieberKwon2007}.
+
+\paragraph{Product.}
+Product places the inputs in a nearly square grid and creates one auxiliary selector for each row and column. Each input implies the selectors for its position. AMO is then imposed recursively on the row selectors and on the column selectors. Any two distinct grid positions differ in at least one coordinate, so selecting both would require two selectors in that coordinate to be true. The recursive construction has a linear clause bound and uses about $2\sqrt{k}$ auxiliary variables at its first level, with smaller recursive levels contributing the lower-order terms shown in Table~\ref{tab:amo} \cite{Chen2010}.
+
+\paragraph{Ladder and totalizer.}
+These two encodings are provided by PySAT's cardinality-encoding interface \cite{Ignatiev2018}. Ladder uses an ordered chain of auxiliary variables to enforce the cardinality bound. Totalizer combines inputs through a tree whose auxiliary variables represent unary count thresholds; imposing the AMO bound disallows a count of two or more. Totalizer is a general cardinality construction, so its AMO formula can be larger than a specialized encoding. Since the exact counts depend on the library construction, the report uses the generated CNF sizes measured by the implementation.
+
+All seven methods express the same AMO condition, but their auxiliary-variable structures and clause counts differ. Formula size alone does not determine solver time: the arrangement of clauses can also affect propagation and search. The benchmark therefore compares the encodings empirically under the same N-Queens model and solver, without treating any one encoding as universally fastest.
+
+The pairwise, sequential, binary, commander, and product implementations are adapted from the nQueens-SAT repository \cite{DuongsunyNQueensSAT}.
+
+\subsection{Symmetry breaking}
+Horizontal reflection maps every valid solution to another valid solution. When symmetry breaking is enabled, the formula adds the clause
+\begin{equation}
+  x(0,0)\lor x(0,1)\lor\cdots\lor x\!\left(0,\left\lceil\frac{n}{2}\right\rceil-1\right),
+\end{equation}
+which requires the queen in the first row to lie in the left half of the board. Every reflection pair has at least one representative satisfying this clause, so it preserves satisfiability. The experiment toggles this clause independently of the redundant column ALO constraints.
+
+\subsection{Correctness}
+\textbf{Proposition 1.} With row exactly-one constraints, column AMO constraints, and AMO constraints on all diagonals of length at least two, the CNF formula is satisfiable if and only if the board has a legal N-Queens placement.
+
+\textit{Proof.} A satisfying assignment selects exactly one cell in each row, hence exactly $n$ queens. The column and diagonal AMO constraints prevent any two selected cells from sharing a column or diagonal, so the placement is legal. Conversely, a legal placement selects one cell in each row and contains no attacking pair; it therefore satisfies every row, column, and diagonal constraint. Adding a column ALO clause does not change this equivalence because the $n$ queens occupy $n$ columns with no repetitions. The symmetry clause also preserves satisfiability because horizontal reflection maps any solution whose first-row queen lies in the right half to a solution whose first-row queen lies in the left half.\hfill$\square$
+
+\section{Computational experiments}
+\subsection{Experimental setup}
+The benchmark used $n\in\{8,16,32,64,100,128,200,256,400,512\}$. The 204 rows in the raw CSV correspond to one run per recorded configuration, and every row records seed 0. This does not mean every backend was explicitly seeded in the same way: the SAT wrapper only shuffles clauses and sets phases for positive seeds, CP-SAT and Gurobi receive seed 0 through their APIs, and no explicit seed is set for CPLEX. The machine record identifies an Apple M1 Pro with 10 cores and 32 GB RAM, running macOS 26.6.2 and Python 3.12.14. Recorded package versions include PySAT 1.9.dev15, OR-Tools CP-SAT 9.15.6755, Gurobi 13.0.3, and Docplex 2.32.264. The per-run CSV leaves most SAT and CPLEX engine version fields as \texttt{unknown}; those values are not inferred here.
+
+Each run is launched in an isolated process. The program records encoding/model-construction time ($t_{\mathrm{encode}}$), solver time ($t_{\mathrm{solve}}$), total time, status, and solution-verification flag. The CP-SAT, Gurobi, and CPLEX APIs receive a 300-second solver limit. The SAT call has no in-process timeout; the parent process terminates it after 303 seconds of wall time, including process startup and encoding. For those hard-timeout rows, $t_{\mathrm{solve}}$ is estimated as the configured 300 seconds minus recorded encoding time. For completed rows, $t_{\mathrm{total}}$ is measured inside the solver routine from model construction through the solver call and excludes parent-process startup. Thus, timeout and completed-run total times have different measurement boundaries, and the nominal time limit does not provide identical solver budgets across backends. All configurations use one worker. Every SAT row in the CSV has \texttt{verified=True}. The CSV field \texttt{peak\_mem\_mb} should be interpreted cautiously: the current psutil path samples resident memory when the run finishes rather than continuously tracking the true peak. The two SAT \texttt{MEMOUT} records at $n=256$ are triggered by a 16-million-clause safety limit in the runner, so they do not represent measurements of physical machine exhaustion.
+
+All times below are single observations, rounded to three decimal places; no median or seed variability can be estimated from this dataset. Unless stated otherwise, the SAT comparisons use no symmetry breaking and retain the redundant column ALO clause. The raw measurements are in \texttt{results/raw/benchmark\_results\_300s.csv}; machine metadata is in \texttt{results/raw/environment.json}.
+
+\FloatBarrier
+\subsection{E1: AMO encoding comparison}
+E1 fixes CaDiCaL and compares the seven AMO encodings. Figure~\ref{fig:amo} plots solve time for successful instances; failure status and board size are included in the legend. Table~\ref{tab:e1} reports each encoding's largest solved board in the tested grid and its recorded formula size and solve time at that board size.
+
+\begin{table}[t]
+\caption{E1 results at each encoding's largest solved board size. Times are single-run solver times.}
+\label{tab:e1}
+\centering
+\small
+\begin{tabular}{lrrrrr}
+\toprule
+Encoding & Largest $n$ & Solve time (s) & Variables & Clauses & Status at $n=256$ \\
+\midrule
+Pairwise & 200 & 8.276 & 40,000 & 13,253,800 & MEMOUT \\
+Sequential & 512 & 38.658 & 1,307,646 & 3,134,472 & SAT \\
+Binary & 512 & 7.314 & 287,726 & 9,262,420 & SAT \\
+Commander & 512 & 8.367 & 784,502 & 3,129,800 & SAT \\
+Product & 512 & 46.325 & 473,760 & 2,453,672 & SAT \\
+Ladder & 512 & 17.682 & 1,313,770 & 4,195,284 & SAT \\
+Totalizer & 200 & 11.812 & 1,216,484 & 14,431,474 & MEMOUT \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[pos=htbp]
+\centering
+\includegraphics[width=0.92\linewidth]{fig_amo_runtime.pdf}
+\caption{Solve time by board size for the seven AMO encodings with CaDiCaL. The pairwise and totalizer series stop at $n=200$ because the next instance exceeds the runner's clause safety limit.}
+\label{fig:amo}
+\end{figure}
+
+Pairwise and totalizer both reach the clause safety limit at $n=256$; the remaining five encodings solve all ten tested sizes. At $n=512$, binary has the lowest CaDiCaL solve time among the five encodings that complete that size, at 7.314 seconds. This comparison also illustrates that formula size alone does not determine solve time: binary has more clauses than sequential and commander at $n=512$, but is faster in this single run. The result is specific to this encoding, solver, board size, and run.
+
+\FloatBarrier
+\subsection{E2: SAT solver comparison}
+E2 fixes the sequential encoding and compares CaDiCaL, Glucose, Kissat, and MapleChrono. Figure~\ref{fig:solvers} shows solve times for successful runs. Table~\ref{tab:e2} summarizes coverage and the last successful size.
+
+\begin{table}[t]
+\caption{E2 results with the sequential-counter encoding. Solved counts use attempted runs; $n=512$ was not attempted for Glucose or MapleChrono after their $n=400$ timeouts.}
+\label{tab:e2}
+\centering
+\small
+\begin{tabular}{lrrrl}
+\toprule
+Solver & Solved / runs & Largest solved $n$ & Time at largest $n$ (s) & First recorded timeout \\
+\midrule
+CaDiCaL & 10/10 & 512 & 38.658 & -- \\
+Glucose & 8/9 & 256 & 174.047 & $n=400$ \\
+Kissat & 10/10 & 512 & 16.014 & -- \\
+MapleChrono & 8/9 & 256 & 130.778 & $n=400$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[pos=htbp]
+\centering
+\includegraphics[width=0.92\linewidth]{fig_solvers_comparison.pdf}
+\caption{Solve time by board size for four SAT solvers using the sequential-counter encoding.}
+\label{fig:solvers}
+\end{figure}
+
+Kissat and CaDiCaL solve all tested sizes with the sequential encoding. Glucose and MapleChrono time out at $n=400$ and are not run at larger sizes in the resumed benchmark schedule. At $n=512$, the recorded Kissat solve time is 16.014 seconds, compared with 38.658 seconds for CaDiCaL. The observed gap should not be generalized beyond the one seed and machine used here.
+
+\FloatBarrier
+\subsection{E3: symmetry and redundant column ALO ablation}
+E3 tests the four combinations of symmetry breaking and redundant column ALO with sequential AMO and CaDiCaL. Table~\ref{tab:e3} reports the measurements at $n=128$, where all four configurations return verified solutions. Figure~\ref{fig:e3} plots the full successful runtime series.
+
+\begin{table}[t]
+\caption{E3 ablation results at $n=128$. Each value is one run.}
+\label{tab:e3}
+\centering
+\small
+\begin{tabular}{ccrrrr}
+\toprule
+Symmetry & Column ALO & Solve time (s) & Total time (s) & Variables & Clauses \\
+\midrule
+Off & Off & 7.721 & 7.836 & 81,150 & 193,672 \\
+Off & On & 8.855 & 8.981 & 81,150 & 193,800 \\
+On & Off & 4.331 & 4.448 & 81,150 & 193,673 \\
+On & On & 3.386 & 3.507 & 81,150 & 193,801 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[pos=htbp]
+\centering
+\includegraphics[width=0.92\linewidth]{fig_e3_ablation.pdf}
+\caption{E3 solve times by board size for the four symmetry and column-ALO settings.}
+\label{fig:e3}
+\end{figure}
+
+At $n=128$, adding the symmetry clause is associated with shorter observed solve times in both ALO settings. The column ALO clause increases the formula by 128 clauses at this size and does not add variables. These are descriptive observations from single runs. In the full ablation data, the configuration without symmetry and without column ALO times out at $n=512$; the other three configurations return SAT at that size.
+
+\FloatBarrier
+\subsection{E4: comparison with exact baselines}
+The baselines are feasibility formulations: CP-SAT permutation uses three all-different constraints, CP-SAT binary uses a Boolean matrix, Gurobi and CPLEX MIP use binary variables and linear constraints, and CPLEX CP uses a permutation model. The CP-SAT, Gurobi, and CPLEX APIs provide the solver backends used for these models \cite{OrtoolsDocs,GurobiManual,IBMManual}. The selected SAT series in Figure~\ref{fig:baselines} are binary--CaDiCaL and commander--CaDiCaL. Table~\ref{tab:e4} gives the coverage and total time for the largest solved size of each model. For these completed runs, total time is measured inside each model routine and includes model construction and the solver call; it excludes parent-process startup.
+
+\begin{table}[t]
+\caption{E4 results for each baseline model and the plotted SAT configurations.}
+\label{tab:e4}
+\centering
+\small
+\begin{tabular}{lrrrl}
+\toprule
+Model & Solved & Largest solved $n$ & Total time there (s) & Failure in tested grid \\
+\midrule
+SAT binary + CaDiCaL & 10/10 & 512 & 14.019 & -- \\
+SAT commander + CaDiCaL & 10/10 & 512 & 11.030 & -- \\
+CP-SAT permutation & 8/10 & 256 & 28.896 & TIMEOUT at 400, 512 \\
+CP-SAT binary matrix & 10/10 & 512 & 5.584 & -- \\
+Gurobi MIP & 10/10 & 512 & 1.260 & -- \\
+CPLEX MIP & 10/10 & 512 & 4.237 & -- \\
+CPLEX CP & 10/10 & 512 & 0.094 & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[pos=htbp]
+\centering
+\includegraphics[width=0.92\linewidth]{fig_sat_vs_baselines.pdf}
+\caption{Total time by board size for two SAT configurations and the exact baseline models.}
+\label{fig:baselines}
+\end{figure}
+
+At $n=512$, every baseline except CP-SAT permutation returns a verified solution. The recorded CPLEX CP total time is 0.094 seconds, while the two SAT configurations plotted at that size take 14.019 seconds for binary and 11.030 seconds for commander. These times compare the specific models and settings implemented here; they do not imply that one solver family is generally faster. CP-SAT permutation solves through $n=256$ and reaches the 300-second solver time limit at $n=400$ and $n=512$.
+
+\FloatBarrier
+\subsection{Limitations}
+The experiment uses one machine, one recorded seed, and a configured 300-second timeout (with a 303-second outer process cutoff for SAT) rather than the 600-second timeout and repeated seeds suggested in the design brief. The benchmark therefore provides no estimate of run-to-run variability. The ordinary N-Queens instances are feasible by construction for all tested sizes, so this study does not compare infeasibility proof performance or completion instances with pre-placed queens. The CSV does not contain full version identifiers for several backends, including the CPLEX engine. The memory field is an end-of-run RSS sample on the psutil path, not a measured peak. Finally, pairwise and totalizer runs at $n=256$ are reported as MEMOUT because of a configured clause ceiling; the result is an implementation guard, not evidence that the host exhausted its physical RAM.
+
+\section{Conclusion}
+This paper presented a CNF model for N-Queens and compared seven AMO encodings, four SAT backends under a fixed encoding, an ablation of symmetry and redundant column ALO, and exact CP/MIP baselines. On the recorded CaDiCaL runs, five of seven AMO encodings solved all tested sizes through $n=512$, while pairwise and totalizer reached the 16-million-clause guard at $n=256$. With sequential AMO, CaDiCaL and Kissat solved all ten sizes, whereas Glucose and MapleChrono timed out at $n=400$. Among the baseline configurations, CP-SAT binary, Gurobi MIP, CPLEX MIP, and CPLEX CP solved all tested sizes, while CP-SAT permutation timed out at the two largest sizes.
+
+The evidence supports only a narrow conclusion about these implementations on one Apple M1 Pro system. Repeated seeds, a larger timeout, more complete engine-version records, true peak-memory monitoring, and N-Queens completion instances would be needed for a stronger solver comparison. Since standard N-Queens instances have known constructive solutions, the results should be read as a study of SAT encoding and exact-model behavior rather than as a claim that SAT is the best general-purpose way to solve N-Queens.
+
+\section*{Data availability}
+The code and data supporting this study are available in the project repository \cite{NguyenMinhKhiemNQueens2026}. The repository contains the raw per-run benchmark data (\texttt{results/raw/benchmark\_results\_300s.csv}), environment and package metadata (\texttt{results/raw/environment.json}), benchmark and analysis scripts (\texttt{scripts/}), report source (\texttt{report/main.tex}), and the figures used in the report (\texttt{report/figures/}).
+
+\bibliographystyle{cas-model2-names}
+\bibliography{refs}
+
+\end{document}
